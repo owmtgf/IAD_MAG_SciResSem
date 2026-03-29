@@ -259,3 +259,119 @@ print(f"{obj=}")
 
 >>> obj=39.0
 ```
+
+## Stochastic programming approach
+
+### Distributional Assumptions
+> Assume a true distribution of the uncertain problem parameters, which is typical in the context of your optimization problem.
+
+We assume that the $c_{ij}$ are independent random variables and satisfy:
+
+$$
+c_{ij} \sim \mathcal{N}(\mu_{ij}, \sigma_{ij}^2) = \mathbb{P}_{ij}, \quad \forall i,j.
+$$
+
+The parameters are defined as:
+
+$$
+\mu_{ij} = 5 + i + 2j, \qquad
+\sigma_{ij} = 1 + 0.1(i + j).
+$$
+
+The expected cost $\mu_{ij}$ represents the typical cost of assigning worker $i$ to task $j$. It depends on both the worker and the task:
+
+- Larger $j$ corresponds to a more difficult task, so the expected cost is higher.
+- Larger $i$ corresponds to a less efficient worker, so the expected cost is also higher.
+
+The standard deviation $\sigma_{ij}$ represents the uncertainty of this assignment cost. Assignments with larger $i+j$ are more variable, reflecting that complex or difficult worker–task combinations are less predictable.
+
+### Stochastic problem formulation
+
+> Formulate risk-neutral and risk-averse versions of the stochastic programming problem and their sample average approximations (SAA).
+
+Suppose:
+$$
+f(x, c) = \sum_{i=1}^{n} \sum_{j=1}^{n} c_{ij} x_{ij}
+$$
+
+Then the risk-neutral stochastic optimization problem can be formulate as:
+$$
+\min_{x \in X} \mathbb{E}_\mathbb{P}[f(x, c)] = \min_{x \in X} \sum_{i=1}^{n} \sum_{j=1}^{n} \mathbb{E}_{\mathbb{P}_{ij}}[c_{ij}]x_{ij}
+$$
+
+To incorporate risk averse, we consider the conditional value-at-risk (CVaR) at level  $\alpha \in (0,1)$. The problem is formulated as:
+$$
+\min_{x \in X,\; t \in \mathbb{R}} 
+\left(
+t + \frac{1}{1-\alpha} \mathbb{E}_{\mathbb{P}}\left[\max \left \{f(x, c) - t, 0 \right\}\right]
+\right) = \\ = \min_{x \in X,\; t \in \mathbb{R}} 
+\left(
+t + \frac{1}{1-\alpha} \left[\max \left \{\sum_{i=1}^{n} \sum_{j=1}^{n} \mathbb{E}_{\mathbb{P_{ij}}}[c_{ij}] x_{ij} - t, 0 \right \}\right]
+\right)
+$$
+
+All this general formulations with discrete distribution assumption can be simplified into:
+- Risk-Neutral:
+$$
+\min_{x \in X} \sum_{i=1}^{n} \sum_{j=1}^{n} \left( \sum_{k=1}^{K}{p_{ij}^{k}}c_{ij}^{k} \right) x_{ij}
+$$
+- Risk-Averse:
+$$
+\min_{x \in X,\; t\in \mathbb{R}}
+\left(
+t + \frac{1}{1-\alpha} \left[\max \left \{\sum_{i=1}^{n} \sum_{j=1}^{n} \left( \sum_{k=1}^{K} p_{ij}^k c_{ij}^k \right) x_{ij} - t, 0 \right \}\right]
+\right) \Longrightarrow \\
+\Longrightarrow
+\begin{cases}
+\min_{x \in X,\; t\in \mathbb{R}}
+\left(
+t + \frac{1}{1-\alpha} \sum_{k=1}^{K} p^k z^k
+\right) \\
+z^k \geq \sum_{i=1}^{n} \sum_{j=1}^{n} c_{ij}^k x_{ij} - t \\
+z^k \geq 0
+\end{cases}
+$$
+where each $c_{ij} \sim p_{ij}$ with $K$ unique values.
+
+Their sample average approximation (SAA) will be:
+- Risk-Neutral:
+$$
+\min_{x \in X} \frac{1}{K} \sum_{k=1}^{K} f(x, c^k)
+= \min_{x \in X} \left( \sum_{i=1}^{n} \sum_{j=1}^{n} \left(\frac{1}{K} \sum_{k=1}^{K} c_{ij}^k \right) x_{ij}\right)
+$$
+- Risk-Averse:
+$$
+\min_{x \in X,\; t\in \mathbb{R}} 
+\left[
+t + \frac{1}{(1-\alpha)}  \frac{1}{K}
+\sum_{k=1}^{K} 
+\max\left\{ f(x,c^k) - t, 0 \right\}
+\right] = \\ = 
+\min_{x \in X,\; t\in \mathbb{R}} 
+\left[
+t + \frac{1}{(1-\alpha)}  
+\max\left \{ \sum_{i=1}^{n} \sum_{j=1}^{n} \left( \frac{1}{K}
+\sum_{k=1}^{K} c_{ij}^k \right) x_{ij} - t, 0 \right \}
+\right]
+\Longrightarrow \\
+\Longrightarrow
+\begin{cases}
+\min_{x \in X,\; t\in \mathbb{R}}
+\left(
+t + \frac{1}{1-\alpha} \sum_{k=1}^{K} z^k
+\right) \\
+z^k \geq \sum_{i=1}^{n} \sum_{j=1}^{n} c_{ij}^k x_{ij} - t \\
+z^k \geq 0
+\end{cases}
+$$
+
+### Implementation
+You can find `StochasticInstanceGenerator` class in `./instance_generator.py` for sampling instances from distribution of cost matrix as was defined above. 
+For solving find `StochasticAssignment` class in `./solver.py` and use it to instantiate a specified task solver with input parameters:
+- `cost_matrix`: generated cpst matrix `(n x n)`
+- `alpha`: alpha param (need for RA SAA solver)
+
+Then you can use 2 types of solvers: 
+- Risk-Neutral Sample Average Approximation: `solve_risk_neutral()`;
+- Risk-Averse Sample Average Approximation: `solve_risk_averse()`;
+output format aligned with `RobustAssignment` solver.

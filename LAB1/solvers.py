@@ -66,9 +66,64 @@ class RobustAssignment:
     
 
 class StochasticAssignment:
-    def __init__(self):
-        raise NotImplementedError
-    
+    def __init__(self, cost_samples, alpha=0.9, time_limit=120):
+        """
+        cost_samples : list of k matrices (n x n)
+        alpha : CVaR confidence level
+        time_limit : seconds for Gurobi
+        """
+        self.cost_samples = cost_samples
+        self.n = cost_samples[0].shape[0]
+        self.k = len(cost_samples)
+        self.alpha = alpha
+        self.time_limit = time_limit
+
+    def solve_risk_neutral(self):
+        avg_cost = np.mean(self.cost_samples, axis=0)
+        model = gp.Model("RN_SAA")
+        model.setParam("OutputFlag", 0)
+        model.setParam("TimeLimit", self.time_limit)
+
+        x = model.addVars(self.n, self.n, vtype=GRB.BINARY, name="x")
+        obj = gp.quicksum(avg_cost[i, j] * x[i, j] for i in range(self.n) for j in range(self.n))
+        model.setObjective(obj, GRB.MINIMIZE)
+
+        for i in range(self.n):
+            model.addConstr(gp.quicksum(x[i, j] for j in range(self.n)) == 1)
+        for j in range(self.n):
+            model.addConstr(gp.quicksum(x[i, j] for i in range(self.n)) == 1)
+
+        model.optimize()
+        x_sol = [[int(round(x[i, j].X)) for j in range(self.n)] for i in range(self.n)]
+        return x_sol, model.ObjVal
+
+    def solve_risk_averse(self):
+        model = gp.Model("CVaR_SAA")
+        model.setParam("OutputFlag", 0)
+        model.setParam("TimeLimit", self.time_limit)
+
+        x = model.addVars(self.n, self.n, vtype=GRB.BINARY, name="x")
+        t = model.addVar(lb=-GRB.INFINITY, name="t")
+        z = model.addVars(self.k, lb=0, name="u")
+
+        coeff = 1.0 / ((1.0 - self.alpha) * self.k)
+        obj = t + coeff * gp.quicksum(z[k] for k in range(self.k))
+        model.setObjective(obj, GRB.MINIMIZE)
+
+        for i in range(self.n):
+            model.addConstr(gp.quicksum(x[i, j] for j in range(self.n)) == 1)
+        for j in range(self.n):
+            model.addConstr(gp.quicksum(x[i, j] for i in range(self.n)) == 1)
+
+        for k in range(self.k):
+            cost_s = gp.quicksum(self.cost_samples[k][i, j] * x[i, j]
+                                 for i in range(self.n) for j in range(self.n))
+            model.addConstr(z[k] >= cost_s - t)
+
+        model.optimize()
+        x_sol = [[int(round(x[i, j].X)) for j in range(self.n)] for i in range(self.n)]
+        return x_sol, model.ObjVal
+
 
 # example
 if __name__ == "__main__":
