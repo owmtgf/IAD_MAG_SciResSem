@@ -4,7 +4,7 @@
 - [Аверьянова Мария](https://github.com/maria-aver)
 - [Калягин Дмитрий](https://github.com/owmtgf)
 - [Кашникова Анна](https://github.com/melpomene310)
-- [Лобанов Илья](https://lh3.google.com/u/0/d/1Nl1sIu4EQ-1S9WXjwD43XeXN6kYh-VNd=w1080-h1792-iv2?auditContext=prefetch)
+- [Лобанов Илья](https://github.com/I75357I)
 - [Посаженников Максим](https://github.com/trixTRr)
 - [Железнова Александра](https://github.com/aleksa2001)
 - [Кочнев Максим](https://lh3.google.com/u/0/d/1Nl1sIu4EQ-1S9WXjwD43XeXN6kYh-VNd=w1080-h1792-iv2?auditContext=prefetch)
