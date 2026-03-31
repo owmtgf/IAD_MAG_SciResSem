@@ -266,26 +266,26 @@ print(f"{obj=}")
 
 > For fixed `Γ`, compute the average solution times as a function of `n`.
 
-Once a robust solution $x^{*}(\Gamma)$ is found, we need to evaluate how good it actually is — not only in the worst case, but also under nominal conditions and in a realistic random setting.  Four metrics are used.
+Once a robust solution $x^{\ast}(\Gamma)$ is found, we need to evaluate how good it actually is — not only in the worst case, but also under nominal conditions and in a realistic random setting.  Four metrics are used.
 
 #### 1. Nominal cost
 
 The cost of the solution when no uncertainty occurs at all ($z_{ij} = 0$ for all $i,j$):
 
 $$
-\text{nominal}(x^{*}) = \sum_{i,j} \bar{c}_{ij} \, x^{*}_{ij}
+\text{nominal}(x^{\ast}) = \sum_{i,j} \bar{c}_{ij} \, x^{\ast}_{ij}
 $$
 
 This is the "best case".  The robust solver may choose a somewhat more expensive nominal assignment in exchange for better worst-case protection.
 
 #### 2. In-sample cost (Robust objective)
 
-The worst-case cost within the uncertainty budget $\Gamma$; this is the value the solver actually minimises and returns.  For a fixed binary $x^{*}$, the adversary greedily sets $z_{ij} = 1$ for the $\Gamma$ selected assignments $(i,j)$ with the largest deviation $d_{ij}$:
+The worst-case cost within the uncertainty budget $\Gamma$; this is the value the solver actually minimises and returns.  For a fixed binary $x^{\ast}$, the adversary greedily sets $z_{ij} = 1$ for the $\Gamma$ selected assignments $(i,j)$ with the largest deviation $d_{ij}$:
 
 $$
-\text{in-sample}(x^{*}, \Gamma)
-= \underbrace{\sum_{i,j} \bar{c}_{ij} \, x^{*}_{ij}}_{\text{nominal cost}}
-+ \underbrace{\sum_{\text{top-}\Gamma} d_{ij} \cdot x^{*}_{ij}}_{\text{worst-case addition}}
+\text{in-sample}(x^{\ast}, \Gamma)
+= \underbrace{\sum_{i,j} \bar{c}_{ij} \, x^{\ast}_{ij}}_{\text{nominal cost}}
++ \underbrace{\sum_{\text{top-}\Gamma} d_{ij} \cdot x^{\ast}_{ij}}_{\text{worst-case addition}}
 $$
 
 This coincides with the solver's objective by LP strong duality.  A higher $\Gamma$ leads to a larger in-sample cost because the solver must protect against more simultaneous deviations.
@@ -295,8 +295,8 @@ This coincides with the solver's objective by LP strong duality.  A higher $\Gam
 The expected cost when uncertainty is realised randomly rather than adversarially.  Each $z_{ij}$ is drawn i.i.d. from $\mathrm{Uniform}[0,1]$, modelling a real world where deviations occur unpredictably and not in a coordinated worst-case fashion.  It is estimated via Monte-Carlo over $S$ scenarios:
 
 $$
-\text{oos}(x^{*}) = \frac{1}{S}\sum_{s=1}^{S}
-\sum_{i,j}\bigl(\bar{c}_{ij} + d_{ij} \, z^{s}_{ij}\bigr) \, x^{*}_{ij},
+\text{oos}(x^{\ast}) = \frac{1}{S}\sum_{s=1}^{S}
+\sum_{i,j}\bigl(\bar{c}_{ij} + d_{ij} \, z^{s}_{ij}\bigr) \, x^{\ast}_{ij},
 \qquad z^{s}_{ij} \sim \mathrm{Uniform}[0,1]
 $$
 
@@ -304,12 +304,12 @@ The out-of-sample cost typically lies **between** the nominal cost (lower bound,
 
 #### 4. Price of Robustness (PoR)
 
-How much more do we pay under nominal conditions compared with the purely deterministic solution $x^{*}(0)$ (solved with $\Gamma = 0$)?
+How much more do we pay under nominal conditions compared with the purely deterministic solution $x^{\ast}(0)$ (solved with $\Gamma = 0$)?
 
 $$
 \mathrm{PoR}(\Gamma) =
-\frac{\text{nominal}(x^{*}(\Gamma)) - \text{nominal}(x^{*}(0))}
-     {\text{nominal}(x^{*}(0))}
+\frac{\text{nominal}(x^{\ast}(\Gamma)) - \text{nominal}(x^{\ast}(0))}
+     {\text{nominal}(x^{\ast}(0))}
 \times 100\,\%
 $$
 
