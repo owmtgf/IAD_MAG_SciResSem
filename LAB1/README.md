@@ -228,7 +228,7 @@ You can find `RobustAssignment` class in `./solver.py` and use it to instantiate
 
 Then you can use `solve()` method to get an optimized solution consisting of a tuple of found $X$ matrix and minimum $\min_x \sum_{i=1}^{n} \sum_{j=1}^{n} c_{ij} x_{ij}$ function value.
 
-**Example usage:**
+**Example usage (solver):**
 ```python
 from pprint import pprint
 import numpy as np
@@ -259,6 +259,100 @@ print(f"{obj=}")
 
 >>> obj=39.0
 ```
+
+### Metrics
+
+> For fixed `n`, compute the average in-sample and out-of-sample performance of robust solutions (with standard deviations), depending on the budget (`Γ`).
+
+> For fixed `Γ`, compute the average solution times as a function of `n`.
+
+Once a robust solution $x^*(\Gamma)$ is found, we need to evaluate how good it actually is — not only in the worst case, but also under nominal conditions and in a realistic random setting.  Four metrics are used.
+
+#### 1. Nominal cost
+
+The cost of the solution when no uncertainty occurs at all ($z_{ij} = 0$ for all $i,j$):
+
+$$
+\text{nominal}(x^*) = \sum_{i,j} \bar{c}_{ij}\, x^*_{ij}
+$$
+
+This is the "best case".  The robust solver may choose a somewhat more expensive nominal assignment in exchange for better worst-case protection.
+
+#### 2. In-sample cost (Robust objective)
+
+The worst-case cost within the uncertainty budget $\Gamma$; this is the value the solver actually minimises and returns.  For a fixed binary $x^*$, the adversary greedily sets $z_{ij} = 1$ for the $\Gamma$ selected assignments $(i,j)$ with the largest deviation $d_{ij}$:
+
+$$
+\text{in-sample}(x^*, \Gamma)
+= \underbrace{\sum_{i,j} \bar{c}_{ij}\, x^*_{ij}}_{\text{nominal cost}}
++ \underbrace{\sum_{\text{top-}\Gamma}\, d_{ij}\cdot x^*_{ij}}_{\text{worst-case addition}}
+$$
+
+This coincides with the solver's objective by LP strong duality.  A higher $\Gamma$ leads to a larger in-sample cost because the solver must protect against more simultaneous deviations.
+
+#### 3. Out-of-sample cost
+
+The expected cost when uncertainty is realised *randomly* rather than adversarially.  Each $z_{ij}$ is drawn i.i.d. from $\mathrm{Uniform}[0,1]$, modelling a real world where deviations occur unpredictably and not in a coordinated worst-case fashion.  It is estimated via Monte-Carlo over $S$ scenarios:
+
+$$
+\text{oos}(x^*) = \frac{1}{S}\sum_{s=1}^{S}
+\sum_{i,j}\bigl(\bar{c}_{ij} + d_{ij}\,z^s_{ij}\bigr)\,x^*_{ij},
+\qquad z^s_{ij} \sim \mathrm{Uniform}[0,1]
+$$
+
+The out-of-sample cost typically lies **between** the nominal cost (lower bound, $z=0$) and the in-sample cost (upper bound, worst case).  If the in-sample cost greatly exceeds the out-of-sample cost, the robust solution is overly conservative — it is paying for adversarial scenarios that almost never occur.
+
+#### 4. Price of Robustness (PoR)
+
+How much more do we pay under nominal conditions compared with the purely deterministic solution $x^*(0)$ (solved with $\Gamma = 0$)?
+
+$$
+\mathrm{PoR}(\Gamma) =
+\frac{\text{nominal}(x^*(\Gamma)) - \text{nominal}(x^*(0))}
+     {\text{nominal}(x^*(0))}
+\times 100\,\%
+$$
+
+- $\mathrm{PoR} = 0\,\%$: the robust solution is as cheap as the deterministic one under nominal conditions — robustness was "free".
+- $\mathrm{PoR} > 0\,\%$: we sacrifice some nominal performance to gain protection against uncertainty.
+
+As $\Gamma$ increases, the Price of Robustness generally increases: higher conservatism costs more in the nominal case.
+
+#### Implementation
+
+You can find all four metrics in `./metrics.py`.
+
+**Example usage — point 5 (metrics vs. Γ):**
+```python
+from instance_generator import RobustInstanceGenerator
+from metrics import compute_robust_metrics
+
+gen = RobustInstanceGenerator(seed=42)
+instances = gen.generate_batch(n=10, num_instances=100)
+
+gammas = [0, 1, 2, 3, 5, 10]
+results = compute_robust_metrics(instances, gammas, n_oos_scenarios=1000)
+
+for gamma, m in results.items():
+    print(
+        f"Gamma={gamma:2d} | "
+        f"in-sample: {m['in_sample_mean']:.2f} ± {m['in_sample_std']:.2f} | "
+        f"oos: {m['oos_mean']:.2f} ± {m['oos_std']:.2f} | "
+        f"PoR: {m['por_mean']:.2f}%"
+    )
+```
+
+**Example usage — point 6 (solve time vs. n):**
+```python
+from metrics import compute_solve_times
+
+times = compute_solve_times(gamma=3, n_values=list(range(5, 55, 5)))
+
+for n, t in times.items():
+    print(f"n={n:2d} | mean time: {t['mean']:.4f}s ± {t['std']:.4f}s")
+```
+
+---
 
 ## Stochastic programming approach
 
