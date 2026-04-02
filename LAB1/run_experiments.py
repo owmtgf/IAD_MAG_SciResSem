@@ -1,13 +1,36 @@
 import time
+import json
 from collections import defaultdict
 
 import numpy as np
 import gurobipy as gp
+from gurobipy import GurobiError
+from tqdm import tqdm
 
 from instance_generator import RobustInstanceGenerator, StochasticInstanceGenerator
 from solvers import RobustAssignment, StochasticAssignment
 from visualization import ExperimentVisualizer
 from metrics import nominal_cost, out_of_sample_cost, stochastic_metrics
+
+GUROBI_CONF_PATH = "./gurobi_conf.json"
+
+
+def set_environ(environ: gp.Env, conf_path: str = GUROBI_CONF_PATH):
+    with open(conf_path, "r") as cfp:
+        configuration = json.load(cfp)
+    
+    access_id = configuration["environ"].get("WLSAccessID")
+    secret = configuration["environ"].get("WLSSecret")
+    licence_id = configuration["environ"].get("LicenseID")
+
+    print(f"NOTE: Got environment configuration parameters:\nWLSAccessID: {access_id},\nWLSSecret: {secret},\nLicenseID: {licence_id}\n")
+    if all([access_id, secret, licence_id]):
+        print(f"NOTE: found existing Gurobi licence")
+        environ.setParam('WLSAccessID', access_id)
+        environ.setParam('WLSSecret', secret)
+        environ.setParam('LicenseID', licence_id)
+    else:
+        print(f"WARNING: some of the environment configuration parameters are None - using free Gurobi licence: you will not be able to solve large problems!")
 
 
 def run_robust_experiments(n=10, num_instances=100, gamma_values=[1, 2, 3, 4, 5, 6], n_oos_scenarios=1000, seed: int = 42):
@@ -19,7 +42,7 @@ def run_robust_experiments(n=10, num_instances=100, gamma_values=[1, 2, 3, 4, 5,
 
     env = gp.Env(empty=True)  # Initialize an empty environment
     # Set license parameters using the environment
-    env.setParam('LicenseID', 2799306)
+    set_environ(env)
     # Now, initialize the environment
     env.start()
     
@@ -70,6 +93,7 @@ def run_robust_experiments(n=10, num_instances=100, gamma_values=[1, 2, 3, 4, 5,
               f"Std={results_by_gamma[Gamma]['in_sample_std']:.2f}, "
               f"Avg Time={np.mean(solve_times):.3f}s")
 
+    env.close()
     return results_by_gamma
 
 def run_stochastic_experiments(n=10, num_instances=100, k=30, 
@@ -80,7 +104,7 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
 
     env = gp.Env(empty=True)  # Initialize an empty environment
     # Set license parameters using the environment
-    env.setParam('LicenseID', 2799306)
+    set_environ(env)
     # Now, initialize the environment
     env.start()
     
@@ -97,13 +121,12 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
         sol, obj = model.solve_risk_neutral(env)
         solve_time = time.time() - start_time
         rn_results['solve_times'].append(solve_time)
-
+        start_rn = time.time()
         # generate OUT-OF-SAMPLE scenarios
         test_scenarios = gen.generate_instance(n, k=n_oos_scenarios)
         # compute scenario costs
-        scenario_costs = [
-            np.sum(sol * s) for s in test_scenarios
-        ]
+        sol_array = np.array(sol)
+        scenario_costs = np.tensordot(test_scenarios, sol_array, axes=([1,2],[0,1]))
         # evaluate
         metrics = stochastic_metrics(
             scenario_costs,
@@ -113,6 +136,9 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
         rn_results["mean_list"].append(metrics["mean"])
         rn_results["cvar_list"].append(metrics[f"cvar_{alpha_values[-1]:.2f}"])
         rn_results.setdefault("all_costs", []).extend(scenario_costs)
+
+        end_rn = time.time()
+        # print(f"end_rn - start_rn ={end_rn - start_rn}")
 
     rn_summary = {
         "mean": np.mean(rn_results["mean_list"]),
@@ -124,7 +150,7 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
     print(f"RN: mean={rn_summary['mean']:.2f}, "
           f"std={rn_summary['std']:.2f}, "
           f"CVaR={rn_summary['cvar']:.2f}")
-
+    
     # Сбор результатов для Risk-Averse с разными alpha
     ra_results_by_alpha = {}
     for alpha in alpha_values:
@@ -134,13 +160,25 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
         solve_times = []
         all_costs = []
         
-        for scenarios in instances:
-            start_time = time.time()
-            model = StochasticAssignment(scenarios, alpha=alpha)
-            sol, obj = model.solve_risk_averse(env)
-            solve_time = time.time() - start_time
+        for i, scenarios in enumerate(instances):
+            while True:
+                try:
+                    start_time = time.time()
+                    model = StochasticAssignment(scenarios, alpha=alpha)
+                    sol, obj = model.solve_risk_averse(env)
+                    solve_time = time.time() - start_time
+                    err = None
+                except GurobiError as e:
+                    err = e
+                    print(e)
+                    print(f"WARNING: lost connection with host! Retry in 20 seconds.")
+                    for t in tqdm(range(20), desc="Waiting for retry"):
+                        time.sleep(1)                
+                if not err:
+                    break
+  
             solve_times.append(solve_time)
-
+            start_ra = time.time()
             # OUT-OF-SAMPLE
             test_scenarios = gen.generate_instance(n, k=n_oos_scenarios)
             scenario_costs = [
@@ -154,6 +192,9 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
             mean_list.append(metrics["mean"])
             cvar_list.append(metrics[f"cvar_{alpha:.2f}"])
             all_costs.extend(scenario_costs)
+
+            end_ra = time.time()
+            # print(f"end_ra - start_ra ={end_ra - start_ra}")
 
         ra_results_by_alpha[alpha] = {
             "mean_list": mean_list,
@@ -169,7 +210,9 @@ def run_stochastic_experiments(n=10, num_instances=100, k=30,
         print(f"  α={alpha}: mean={ra_results_by_alpha[alpha]['mean']:.2f}, "
               f"std={ra_results_by_alpha[alpha]['std']:.2f}, "
               f"CVaR={ra_results_by_alpha[alpha]['cvar']:.2f}")
-    
+
+    env.close()
+
     return rn_results, ra_results_by_alpha
 
 
@@ -180,10 +223,10 @@ def run_scaling_experiments(sizes=[5, 10, 15, 20, 25],
     robust_scaling_results = []
     env = gp.Env(empty=True)  # Initialize an empty environment
     # Set license parameters using the environment
-    env.setParam('LicenseID', 2799306)
+    set_environ(env)
     # Now, initialize the environment
     env.start()
-    
+
     for n in sizes:
         print(f"\nTesting size n={n}...")
         gen = RobustInstanceGenerator(seed=42)
@@ -261,6 +304,12 @@ def run_out_of_sample_validation(n=10, num_train=50, num_test=1000, k=30):
     print("OUT-OF-SAMPLE VALIDATION")
     print("="*80)
     
+    env = gp.Env(empty=True)  # Initialize an empty environment
+    # Set license parameters using the environment
+    set_environ(env)
+    # Now, initialize the environment
+    env.start()
+
     gen = StochasticInstanceGenerator(seed=42)
     
     # Генерируем тренировочные и тестовые сценарии
@@ -279,10 +328,10 @@ def run_out_of_sample_validation(n=10, num_train=50, num_test=1000, k=30):
         
         # Обучаем модели
         model_rn = StochasticAssignment(train_scenarios)
-        sol_rn, _ = model_rn.solve_risk_neutral()
+        sol_rn, _ = model_rn.solve_risk_neutral(env)
         
         model_ra = StochasticAssignment(train_scenarios, alpha=0.9)
-        sol_ra, _ = model_ra.solve_risk_averse()
+        sol_ra, _ = model_ra.solve_risk_averse(env)
         
         # Оцениваем на тестовых сценариях
         rn_costs_instance = []

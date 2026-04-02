@@ -2,7 +2,34 @@ from pprint import pprint
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
+import json
+from gurobipy import GurobiError
+import time
 
+GUROBI_CONF_PATH = "./gurobi_conf.json"
+
+
+def set_model_params(model: gp.Model, conf_path: str = GUROBI_CONF_PATH):
+    with open(conf_path, "r") as cfp:
+        configuration = json.load(cfp)
+    
+    output_flag = configuration["model"].get("OutputFlag", 0)
+    log_to_console = configuration["model"].get("LogToConsole", 0)
+    time_limit = configuration["model"].get("TimeLimit")
+    mip_focus = configuration["model"].get("MIPFocus")
+    heuristics = configuration["model"].get("Heuristics")
+    cuts = configuration["model"].get("Cuts")
+
+    model.setParam("OutputFlag", output_flag)
+    model.setParam("LogToConsole", log_to_console)
+    if time_limit is not None:
+        model.setParam("TimeLimit", time_limit)
+    if mip_focus is not None:
+        model.setParam("MIPFocus", mip_focus)
+    if heuristics is not None:
+        model.setParam("Heuristics", heuristics)
+    if cuts is not None:
+        model.setParam("Cuts", cuts)
 
 class RobustAssignment:
     def __init__(self, c_bar, d, Gamma, env):
@@ -18,7 +45,7 @@ class RobustAssignment:
         self.n = c_bar.shape[0]
 
         self.model = gp.Model("robust_assignment", env)
-        self.model.setParam("OutputFlag", 0)
+        set_model_params(self.model)
 
         self._build_model()
 
@@ -81,8 +108,7 @@ class StochasticAssignment:
     def solve_risk_neutral(self, env):
         avg_cost = np.mean(self.cost_samples, axis=0)
         model = gp.Model("RN_SAA", env)
-        model.setParam("OutputFlag", 0)
-        model.setParam("TimeLimit", self.time_limit)
+        set_model_params(model)
 
         x = model.addVars(self.n, self.n, vtype=GRB.BINARY, name="x")
         obj = gp.quicksum(avg_cost[i, j] * x[i, j] for i in range(self.n) for j in range(self.n))
@@ -99,29 +125,36 @@ class StochasticAssignment:
 
     def solve_risk_averse(self, env):
         model = gp.Model("CVaR_SAA", env)
-        model.setParam("OutputFlag", 0)
-        model.setParam("TimeLimit", self.time_limit)
+        set_model_params(model)
 
-        x = model.addVars(self.n, self.n, vtype=GRB.BINARY, name="x")
+        C = np.array(self.cost_samples).reshape(self.k, -1)
+
+        x = model.addVars(self.n * self.n, vtype=GRB.BINARY, name="x")
         t = model.addVar(lb=-GRB.INFINITY, name="t")
-        z = model.addVars(self.k, lb=0, name="u")
+        z = model.addVars(self.k, lb=0, name="z")
 
         coeff = 1.0 / ((1.0 - self.alpha) * self.k)
-        obj = t + coeff * gp.quicksum(z[k] for k in range(self.k))
-        model.setObjective(obj, GRB.MINIMIZE)
+        model.setObjective(t + coeff * gp.quicksum(z[k] for k in range(self.k)), GRB.MINIMIZE)
 
         for i in range(self.n):
-            model.addConstr(gp.quicksum(x[i, j] for j in range(self.n)) == 1)
-        for j in range(self.n):
-            model.addConstr(gp.quicksum(x[i, j] for i in range(self.n)) == 1)
+            model.addConstr(gp.quicksum(x[i*self.n + j] for j in range(self.n)) == 1)
 
+        for j in range(self.n):
+            model.addConstr(gp.quicksum(x[i*self.n + j] for i in range(self.n)) == 1)
+
+        # CVaR constraints
         for k in range(self.k):
-            cost_s = gp.quicksum(self.cost_samples[k][i, j] * x[i, j]
-                                 for i in range(self.n) for j in range(self.n))
-            model.addConstr(z[k] >= cost_s - t)
+            model.addConstr(
+                z[k] >= gp.quicksum(C[k, l] * x[l] for l in range(self.n*self.n)) - t
+            )
 
         model.optimize()
-        x_sol = [[int(round(x[i, j].X)) for j in range(self.n)] for i in range(self.n)]
+
+        x_sol = np.array([
+            [int(x[i*self.n + j].X > 0.5) for j in range(self.n)]
+            for i in range(self.n)
+        ])
+
         return x_sol, model.ObjVal
 
 
