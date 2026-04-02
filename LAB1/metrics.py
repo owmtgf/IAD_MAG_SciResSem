@@ -123,33 +123,69 @@ def compute_solve_times(gamma, n_values, num_instances=100, seed=42):
 
     return results
 
-if __name__ == "__main__":
-    from instance_generator import RobustInstanceGenerator
 
-    n = 10
-    gammas = [0, 1, 2, 3, 5, 10]
-    gen = RobustInstanceGenerator(seed=42)
-    instances = gen.generate_batch(n=n, num_instances=20)  # 20 for quick demo
+def stochastic_metrics(
+    scenario_costs,
+    alpha=0.95,
+    threshold=None,
+    ddof=1,
+):
+    """
+    Вычисляет основные стохастические метрики для случайной стоимости решения.
 
-    print(f"Computing robust metrics for n={n}, 20 instances ...\n")
-    metrics = compute_robust_metrics(instances, gammas, n_oos_scenarios=500, seed=0)
+    Возвращает
+    ----------
+    dict
+        Словарь с метриками:
+        - mean
+        - variance
+        - std
+        - min
+        - max
+        - var_alpha
+        - cvar_alpha
+        - prob_exceed_threshold (если threshold задан)
+        - rn_gap_vs_baseline (если baseline_mean задан)
+        - ra_gap_vs_baseline (если baseline_cvar задан)
+    """
+    costs = np.asarray(scenario_costs, dtype=float)
 
-    header = f"{'Gamma':>6}  {'In-sample':>20}  {'Nominal':>20}  {'OOS':>20}  {'PoR %':>12}  {'Time (s)':>12}"
-    print(header)
-    print("-" * len(header))
-    for gamma, m in metrics.items():
-        print(
-            f"{gamma:>6}  "
-            f"{m['in_sample_mean']:>9.2f} ± {m['in_sample_std']:<8.2f}  "
-            f"{m['nominal_mean']:>9.2f} ± {m['nominal_std']:<8.2f}  "
-            f"{m['oos_mean']:>9.2f} ± {m['oos_std']:<8.2f}  "
-            f"{m['por_mean']:>6.2f} ± {m['por_std']:<4.2f}  "
-            f"{m['solve_time_mean']:>6.4f} ± {m['solve_time_std']:.4f}"
-        )
+    if costs.ndim != 1:
+        raise ValueError("scenario_costs должен быть одномерным массивом.")
+    if len(costs) == 0:
+        raise ValueError("scenario_costs не должен быть пустым.")
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha должен лежать в интервале (0, 1).")
 
-    print("\nComputing solve times for Gamma=3, n in [5,10,...,30] ...\n")
-    times = compute_solve_times(gamma=3, n_values=list(range(5, 35, 5)), num_instances=20)
-    print(f"{'n':>4}  {'Mean time (s)':>14}  {'Std (s)':>10}")
-    print("-" * 32)
-    for n_val, t in times.items():
-        print(f"{n_val:>4}  {t['mean']:>14.4f}  {t['std']:>10.4f}")
+    # Базовые статистики
+    mean_cost = float(np.mean(costs))
+    var_cost = float(np.var(costs, ddof=ddof)) if len(costs) > ddof else 0.0
+    std_cost = float(np.std(costs, ddof=ddof)) if len(costs) > ddof else 0.0
+    min_cost = float(np.min(costs))
+    max_cost = float(np.max(costs))
+
+    # VaR_alpha для задачи минимизации стоимости:
+    # это alpha-квантиль затрат
+    var_alpha = float(np.quantile(costs, alpha, method="linear"))
+
+    # CVaR_alpha = среднее по худшему хвосту: Z >= VaR_alpha
+    tail = costs[costs >= var_alpha]
+    cvar_alpha = float(np.mean(tail)) if len(tail) > 0 else var_alpha
+
+    result = {
+        "mean": mean_cost,
+        "variance": var_cost,
+        "std": std_cost,
+        "min": min_cost,
+        "max": max_cost,
+        f"var_{alpha:.2f}": var_alpha,
+        f"cvar_{alpha:.2f}": cvar_alpha,
+    }
+
+    # Вероятность превышения заданного порога
+    if threshold is not None:
+        prob_exceed = float(np.mean(costs > threshold))
+        result["threshold"] = float(threshold)
+        result["prob_exceed_threshold"] = prob_exceed
+
+    return result
