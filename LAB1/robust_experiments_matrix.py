@@ -123,7 +123,7 @@ class RobustExperimentMatrix:
         
         with open(f'robust_results_matrix_n_{n}.json', 'w') as f:
             json.dump(serializable, f, indent=2)
-        print(f"  ✓ Checkpoint saved: robust_results_matrix_n_{n}.json")
+        print(f"    Checkpoint saved: robust_results_matrix_n_{n}.json")
     
     def save_results(self, filename='robust_results_matrix.json'):
         """Сохраняет все результаты в JSON"""
@@ -216,12 +216,12 @@ def main():
     # 2. Плоский CSV для анализа
     df = runner.to_dataframe()
     df.to_csv('robust_results_flat.csv', index=False)
-    print(f"✓ Flat CSV saved: {len(df)} records")
+    print(f"Flat CSV saved: {len(df)} records")
     
     # 3. Агрегированные данные
     aggregated = runner.get_aggregated()
     aggregated.to_csv('robust_results_aggregated.csv', index=False)
-    print(f"✓ Aggregated results saved")
+    print(f"Aggregated results saved")
     
     # Выводим структуру результатов
     print("\n" + "="*70)

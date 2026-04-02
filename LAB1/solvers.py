@@ -5,7 +5,7 @@ from gurobipy import GRB
 
 
 class RobustAssignment:
-    def __init__(self, c_bar, d, Gamma):
+    def __init__(self, c_bar, d, Gamma, env):
         """
         c_bar : nominal cost matrix (n x n)
         d     : deviation matrix (n x n)
@@ -17,7 +17,7 @@ class RobustAssignment:
         self.Gamma = Gamma
         self.n = c_bar.shape[0]
 
-        self.model = gp.Model("robust_assignment")
+        self.model = gp.Model("robust_assignment", env)
         self.model.setParam("OutputFlag", 0)
 
         self._build_model()
@@ -78,9 +78,9 @@ class StochasticAssignment:
         self.alpha = alpha
         self.time_limit = time_limit
 
-    def solve_risk_neutral(self):
+    def solve_risk_neutral(self, env):
         avg_cost = np.mean(self.cost_samples, axis=0)
-        model = gp.Model("RN_SAA")
+        model = gp.Model("RN_SAA", env)
         model.setParam("OutputFlag", 0)
         model.setParam("TimeLimit", self.time_limit)
 
@@ -97,8 +97,8 @@ class StochasticAssignment:
         x_sol = [[int(round(x[i, j].X)) for j in range(self.n)] for i in range(self.n)]
         return x_sol, model.ObjVal
 
-    def solve_risk_averse(self):
-        model = gp.Model("CVaR_SAA")
+    def solve_risk_averse(self, env):
+        model = gp.Model("CVaR_SAA", env)
         model.setParam("OutputFlag", 0)
         model.setParam("TimeLimit", self.time_limit)
 
